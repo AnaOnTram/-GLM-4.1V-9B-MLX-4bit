@@ -6,7 +6,8 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from .language import LanguageModel, TextConfig
+# Import CausalLMOutput from language.py where it is now defined
+from .language import LanguageModel, TextConfig, CausalLMOutput
 from .vision import VisionConfig, VisionModel
 
 
@@ -81,8 +82,10 @@ class Model(nn.Module):
         mask: Optional[mx.array] = None,
     ):
         if pixel_values is None:
+            # This case is for text-only generation in a loop
             return self.language_model.model.embed_tokens(input_ids), None
 
+        # This case is for the first multi-modal input
         inputs_embeds = self.language_model.model.embed_tokens(input_ids)
 
         vision_outputs = self.vision_tower(
@@ -134,19 +137,22 @@ class Model(nn.Module):
     def __call__(
         self,
         input_ids: mx.array,
-        pixel_values: mx.array,
+        pixel_values: Optional[mx.array] = None,
         mask: Optional[mx.array] = None,
         cache: Optional[mx.array] = None,
-        **kwargs,
+        inputs_embeds: Optional[mx.array] = None,
+        **kwargs,  # <-- THIS IS THE FINAL FIX
     ):
-        input_embeddings, _ = self.get_input_embeddings(input_ids, pixel_values, mask)
-
-        logits = self.language_model(
+        if inputs_embeds is None:
+            inputs_embeds, _ = self.get_input_embeddings(
+                input_ids, pixel_values, mask
+            )
+        
+        return self.language_model(
             inputs=input_ids,
             cache=cache,
-            inputs_embeds=input_embeddings,
+            inputs_embeds=inputs_embeds,
         )
-        return logits
 
     def sanitize(self, weights):
         final_weights = {}
@@ -160,7 +166,6 @@ class Model(nn.Module):
                 new_k = k.replace("lm_head", "language_model.lm_head")
             final_weights[new_k] = v
 
-        # Add projector weights from the initialized model if they are not in the file
         if "multi_modal_projector.mm_input_projection_weight" not in final_weights:
             final_weights["multi_modal_projector.mm_input_projection_weight"] = self.multi_modal_projector.mm_input_projection_weight
         if "multi_modal_projector.mm_soft_emb_norm.weight" not in final_weights:
