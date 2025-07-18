@@ -10,6 +10,14 @@ from ..base import (
     scaled_dot_product_attention,
 )
 
+# Define the complete output class with all optional attributes the generator might check for.
+@dataclass
+class CausalLMOutput:
+    logits: mx.array
+    cross_attention_states: Optional[Tuple] = None
+    encoder_outputs: Optional[Tuple] = None
+    hidden_states: Optional[Tuple] = None
+    attentions: Optional[Tuple] = None
 
 @dataclass
 class TextConfig:
@@ -182,7 +190,9 @@ class LanguageModel(nn.Module):
     ):
         out = self.model(inputs, inputs_embeds=inputs_embeds, mask=mask, cache=cache)
         out = self.lm_head(out)
-        return out
+        # --- THIS IS THE FIX ---
+        # Return a consistent object type
+        return CausalLMOutput(logits=out)
 
     @property
     def layers(self):
